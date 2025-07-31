@@ -6,6 +6,9 @@ public class FileFreq {
     public String getPath() {
         return path;
     }
+    public Integer getFreq() {
+        return freq;
+    }
 
     private String path;
     private Integer freq;
