@@ -4,12 +4,10 @@ import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
 import javafx.scene.Parent;
-import javafx.scene.control.Button;
-import javafx.scene.control.ListView;
-import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.*;
 import javafx.scene.input.Dragboard;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.TransferMode;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Popup;
 import se233.chapter3.Launcher;
@@ -21,20 +19,25 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Stack;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 public class MainViewController {
     LinkedHashMap<String, List<FileFreq>> uniqueSets;
+    // Stack to keep track of opened popups
+    private Stack<Popup> popupStack = new Stack<>();
     @FXML
     private ListView<String> inputListView;
     @FXML
+    private ListView<String> listView;
+    @FXML
     private Button startButton;
     @FXML
-    private ListView listView;
-
+    private MenuBar menuBar;
     @FXML
     public void initialize() {
         inputListView.setOnDragOver(event -> {
@@ -52,14 +55,26 @@ public class MainViewController {
             if (db.hasFiles()) {
                 success = true;
                 String filePath;
-                int total_files = db.getFiles().size();
-                WordCountMapTask[] wordCountMapTaskArray = new WordCountMapTask[total_files];
-                Map<String, FileFreq>[] wordMap = new Map[total_files];
-                for (int i = 0; i < total_files; i++) {
+                int totalFiles = db.getFiles().size();
+                for (int i = 0; i < totalFiles; i++) {
                     File file = db.getFiles().get(i);
                     filePath = file.getAbsolutePath();
                     inputListView.getItems().add(filePath);
                 }
+                inputListView.setCellFactory(lv -> new ListCell<String>(){
+                    @Override
+                    protected void updateItem(String fname, boolean empty) {
+                        super.updateItem(fname,empty);
+                        if (empty) {
+                            setText(null);
+                        } else if (fname != null) {
+                            File f = new File(fname);
+                            setText(f.getName());
+                        } else {
+                            setText(null);
+                        }
+                    }
+                });
             }
             event.setDropCompleted(success);
             event.consume();
@@ -68,17 +83,18 @@ public class MainViewController {
             Parent bgRoot = Launcher.primaryStage.getScene().getRoot();
             Task<Void> processTask = new Task<Void>() {
                 @Override
-                public Void call() throws IOException {
+                protected Void call() throws Exception {
                     ProgressIndicator pi = new ProgressIndicator();
                     VBox box = new VBox(pi);
                     box.setAlignment(Pos.CENTER);
                     Launcher.primaryStage.getScene().setRoot(box);
                     ExecutorService executor = Executors.newFixedThreadPool(4);
-                    final ExecutorCompletionService<Map<String, FileFreq>> completionService = new ExecutorCompletionService<>(executor);
+                    ExecutorCompletionService<Map<String, FileFreq>> completionService = new ExecutorCompletionService<>(executor);
+                    listView.getItems().clear();
                     List<String> inputListViewItems = inputListView.getItems();
-                    int total_files = inputListViewItems.size();
-                    Map<String, FileFreq>[] wordMap = new Map[total_files];
-                    for (int i = 0; i < total_files; i++) {
+                    int totalFiles = inputListViewItems.size();
+                    Map<String, FileFreq>[] wordMap = new Map[totalFiles];
+                    for (int i = 0; i < totalFiles; i++) {
                         try {
                             String filePath = inputListViewItems.get(i);
                             PdfDocument p = new PdfDocument(filePath);
@@ -87,7 +103,7 @@ public class MainViewController {
                             e.printStackTrace();
                         }
                     }
-                    for (int i = 0; i < total_files; i++) {
+                    for (int i = 0; i < totalFiles; i++) {
                         try {
                             Future<Map<String, FileFreq>> future = completionService.take();
                             wordMap[i] = future.get();
@@ -99,7 +115,9 @@ public class MainViewController {
                         WordCountReduceTask merger = new WordCountReduceTask(wordMap);
                         Future<LinkedHashMap<String, List<FileFreq>>> future = executor.submit(merger);
                         uniqueSets = future.get();
-                        listView.getItems().addAll(uniqueSets.keySet());
+                        listView.getItems().addAll(uniqueSets.entrySet().stream()
+                                .map(entry -> entry.getKey() + " (" + uniqueSets.get(entry.getKey()).stream().map(x -> x.getFreq()).toList().toString().replaceAll("[\\[\\]]", "") + ")")
+                                .collect(Collectors.toList()));
                     } catch (Exception e) {
                         e.printStackTrace();
                     } finally {
@@ -108,7 +126,7 @@ public class MainViewController {
                     return null;
                 }
             };
-            processTask.setOnSucceeded(event1 -> {
+            processTask.setOnSucceeded(e -> {
                 Launcher.primaryStage.getScene().setRoot(bgRoot);
             });
             Thread thread = new Thread(processTask);
@@ -116,21 +134,69 @@ public class MainViewController {
             thread.start();
         });
         listView.setOnMouseClicked(event -> {
-            List<FileFreq> listOfLinks = uniqueSets.get(listView.getSelectionModel().getSelectedItem());
+            List<FileFreq> listOfLinks = uniqueSets.get(((String) (listView.getSelectionModel().getSelectedItem())).split(" ")[0]);
             ListView<FileFreq> popupListView = new ListView<>();
             LinkedHashMap<FileFreq, String> lookupTable = new LinkedHashMap<>();
             for (int i = 0; i < listOfLinks.size(); i++) {
-                lookupTable.put(listOfLinks.get(i),listOfLinks.get(i).getPath());
+                lookupTable.put(listOfLinks.get(i), listOfLinks.get(i).getPath());
                 popupListView.getItems().add(listOfLinks.get(i));
             }
-            popupListView.setPrefWidth(Region.USE_COMPUTED_SIZE);
-            popupListView.setPrefHeight(popupListView.getItems().size() * 40);
+            popupListView.setPrefHeight(popupListView.getItems().size() * 28);
             popupListView.setOnMouseClicked(innerEvent -> {
                 Launcher.hs.showDocument("file:///" + lookupTable.get(popupListView.getSelectionModel().getSelectedItem()));
                 popupListView.getScene().getWindow().hide();
             });
             Popup popup = new Popup();
             popup.getContent().add(popupListView);
+            
+            // Set popupListView to be focusable
+            popupListView.setFocusTraversable(true);
+            
+            // Add key event handler directly to popupListView
+            popupListView.setOnKeyPressed(keyEvent -> {
+                if (keyEvent.getCode().equals(KeyCode.ESCAPE)) {
+                    // Close the latest popup from stack
+                    if (!popupStack.isEmpty()) {
+                        Popup latestPopup = popupStack.pop();
+                        latestPopup.hide();
+                    }
+                    keyEvent.consume();
+                }
+            });
+            
+            // Add new popup to stack
+            popupStack.push(popup);
+            
+            popup.show(Launcher.primaryStage);
+            
+            // Request focus for the newly opened popup to receive key events immediately
+            popupListView.requestFocus();
+        });
+        menuBar.getMenus().getFirst().getItems().get(0).setOnAction(event -> {
+            System.exit(0);
+        });
+        menuBar.getMenus().get(1).getItems().get(0).setOnAction(event -> {
+            Popup popup = new Popup();
+            ListView<String> popupListView = new ListView<>(inputListView.getItems());
+            popup.getContent().add(popupListView);
+            popupListView.setCellFactory(lv -> new ListCell<String>(){
+                @Override
+                protected void updateItem(String fname, boolean empty) {
+                    super.updateItem(fname,empty);
+                    if (empty) {
+                        setText(null);
+                    } else if (fname != null) {
+                        File f = new File(fname);
+                        setText(f.getName());
+                    } else {
+                        setText(null);
+                    }
+                }
+            });
+            popupListView.setOnMouseClicked(e -> {
+                inputListView.getItems().remove(popupListView.getSelectionModel().getSelectedItem());
+                popup.hide();
+            });
             popup.show(Launcher.primaryStage);
         });
     }

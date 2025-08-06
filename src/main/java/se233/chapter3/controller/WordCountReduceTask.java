@@ -26,23 +26,31 @@ public class WordCountReduceTask implements Callable<LinkedHashMap<String, List<
                                 (list, item) -> list.add(item.getValue()),
                                 (currentList, newItems) -> {
                                     currentList.addAll(newItems);
-                                    return currentList; })
+                                    return currentList;
+                                },
+                                currentList -> {
+                                    currentList.sort(new Comparator<FileFreq>() {
+                                        @Override
+                                        public int compare(FileFreq o1, FileFreq o2) {
+                                            return Integer.compare(o2.getFreq(), o1.getFreq());
+                                        }
+                                    });
+                                    return currentList;
+                                }
+                        )
                 ))
                 .entrySet()
                 .stream()
-                .sorted((entry1, entry2) -> {
-            int totalFreq1 = entry1.getValue().stream()
-                    .mapToInt(fileFreq -> getFrequency(fileFreq))
-                    .sum();
-            int totalFreq2 = entry2.getValue().stream()
-                    .mapToInt(fileFreq -> getFrequency(fileFreq))
-                    .sum();
-            return Integer.compare(totalFreq2, totalFreq1);
-        })
-                .collect(Collectors.toMap(e->e.getKey(), e->e.getValue(), (v1,v2)-> v1, () -> new LinkedHashMap<>()));
+                .sorted(Map.Entry.comparingByValue(new Comparator<List<FileFreq>>() {
+                    @Override
+                    public int compare(List<FileFreq> o1, List<FileFreq> o2) {
+                        int sum1 = o1.stream().mapToInt(FileFreq::getFreq).sum();
+                        int sum2 = o2.stream().mapToInt(FileFreq::getFreq).sum();
+                        return sum2-sum1;
+                    }
+                }))
+                .collect(Collectors.toMap(e->e.getKey(), e->e.getValue(),
+                        (v1, v2)->v1, ()->new LinkedHashMap<>()));
         return uniqueSets;
-    }
-    private int getFrequency(FileFreq fileFreq) {
-        return fileFreq.getFreq();
     }
 }
