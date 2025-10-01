@@ -25,6 +25,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class MainViewController {
     LinkedHashMap<String, List<FileFreq>> uniqueSets;
@@ -38,6 +40,7 @@ public class MainViewController {
     private Button startButton;
     @FXML
     private MenuBar menuBar;
+    private static final Logger logger = LogManager.getLogger(MainViewController.class);
     @FXML
     public void initialize() {
         inputListView.setOnDragOver(event -> {
@@ -80,6 +83,14 @@ public class MainViewController {
             event.consume();
         });
         startButton.setOnAction(event -> {
+            // Log the list of files (names) when Start Indexing is clicked
+            List<String> inputListViewItems = inputListView.getItems();
+            if (inputListViewItems.isEmpty()) {
+                logger.info("Start Indexing clicked with no files selected.");
+            } else {
+                List<String> fileNames = inputListViewItems.stream().map(p -> new File(p).getName()).toList();
+                logger.info("Start Indexing clicked. {} file(s): {}", fileNames.size(), fileNames);
+            }
             Parent bgRoot = Launcher.primaryStage.getScene().getRoot();
             Task<Void> processTask = new Task<Void>() {
                 @Override
@@ -91,6 +102,7 @@ public class MainViewController {
                     ExecutorService executor = Executors.newFixedThreadPool(4);
                     ExecutorCompletionService<Map<String, FileFreq>> completionService = new ExecutorCompletionService<>(executor);
                     listView.getItems().clear();
+                    // Re-fetch list of items inside the background task
                     List<String> inputListViewItems = inputListView.getItems();
                     int totalFiles = inputListViewItems.size();
                     Map<String, FileFreq>[] wordMap = new Map[totalFiles];
